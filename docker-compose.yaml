@@ -1,12 +1,35 @@
 version: "3"
-
 services:
   myapp:
-    restart: always
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
-      PORT: "8000"
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/finance_db
+      FLASK_APP: lab2_app
+      FLASK_RUN_PORT: "8000"
+      FLASK_RUN_HOST: 0.0.0.0
+      ADD_TEST_DATA: 1
+    command: >
+      sh -c "flask db upgrade && flask run --host=0.0.0.0 --port=8000"
     ports:
       - "6969:8000"
+    volumes:
+      - .:/my_app
+
+
+
+  db:
+    image: postgres:15.5-alpine3.18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: finance_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+
