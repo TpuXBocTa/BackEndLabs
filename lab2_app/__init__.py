@@ -6,7 +6,7 @@ db = SQLAlchemy()
 migrate = Migrate()
 
 app = Flask(__name__)
-app.config.from_pyfile("config.py", silent=True)
+app.config.from_pyfile("Config.py", silent=True)
 
 db.init_app(app)
 migrate.init_app(app, db)
