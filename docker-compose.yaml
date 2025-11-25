@@ -1,0 +1,12 @@
+version: "3"
+
+services:
+  myapp:
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8000"
+    ports:
+      - "6969:8000"
