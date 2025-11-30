@@ -1,12 +1,12 @@
 from sqlalchemy import text
 from . import db
 
-
 class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    password = db.Column(db.String(255), nullable=False)
 
     records = db.relationship(
         "Record",
@@ -14,7 +14,6 @@ class User(db.Model):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-
 
 class Category(db.Model):
     __tablename__ = "categories"
@@ -45,7 +44,6 @@ class Category(db.Model):
             postgresql_where=text("owner_id IS NULL"),
         ),
     )
-
 
 class Record(db.Model):
     __tablename__ = "records"

@@ -1,10 +1,52 @@
 from datetime import datetime
-from flask import request
+from flask import request, jsonify
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
-from . import app
+
+from flask_jwt_extended import (
+    jwt_required,
+    create_access_token,
+)
+from passlib.hash import pbkdf2_sha256
+
+from . import app, jwt
 from . import Schemas
 from .Models import db, User, Category, Record
+
+
+
+
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    return (
+        jsonify({"message": "The token has expired.", "error": "token_expired"}),
+        401,
+    )
+
+
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    return (
+        jsonify(
+            {"message": "Signature verification failed.", "error": "invalid_token"}
+        ),
+        401,
+    )
+
+
+@jwt.unauthorized_loader
+def missing_token_callback(error):
+    return (
+        jsonify(
+            {
+                "description": "Request does not contain an access token.",
+                "error": "authorization_required",
+            }
+        ),
+        401,
+    )
+
+
 
 
 @app.route("/")
@@ -17,7 +59,45 @@ def health_check():
     return {"status": "OK", "timestamp": datetime.now()}, 200
 
 
+@app.post("/register")
+def register():
+    try:
+        body = Schemas.user_create_schema.load(request.get_json() or {})
+    except ValidationError as e:
+        return {"error": "invalid registration data", "details": e.messages}, 400
+
+    user = User(
+        name=body["name"],
+        password=pbkdf2_sha256.hash(body["password"]),
+    )
+    db.session.add(user)
+    try:
+        db.session.commit()
+    except IntegrityError as e:
+        db.session.rollback()
+        return {"error": "invalid registration data", "details": str(e.orig)}, 400
+
+    return {"id": user.id, "user_name": user.name}, 201
+
+
+@app.post("/login")
+def login():
+    try:
+        body = Schemas.login_schema.load(request.get_json() or {})
+    except ValidationError as e:
+        return {"error": "invalid login data", "details": e.messages}, 400
+
+    user = User.query.filter_by(name=body["name"]).first()
+    if user is None or not pbkdf2_sha256.verify(body["password"], user.password):
+        return {"error": "bad username or password"}, 401
+    access_token = create_access_token(identity=str(user.id))
+    return {"access_token": access_token}, 200
+
+
+
+
 @app.get("/user/<int:user_id>")
+@jwt_required()
 def read_person(user_id: int):
     user = User.query.get(user_id)
     if user is None:
@@ -26,19 +106,24 @@ def read_person(user_id: int):
 
 
 @app.get("/users")
+@jwt_required()
 def read_people():
     users = User.query.order_by(User.id.asc()).all()
     return [{"id": u.id, "user_name": u.name} for u in users], 200
 
 
 @app.post("/user")
+@jwt_required()
 def create_person():
     try:
         body = Schemas.user_create_schema.load(request.get_json() or {})
     except ValidationError as e:
         return {"error": "invalid user data", "details": e.messages}, 400
 
-    user = User(name=body["name"])
+    user = User(
+        name=body["name"],
+        password=pbkdf2_sha256.hash(body["password"]),
+    )
     db.session.add(user)
     try:
         db.session.commit()
@@ -50,6 +135,7 @@ def create_person():
 
 
 @app.delete("/user/<int:user_id>")
+@jwt_required()
 def drop_person(user_id: int):
     try:
         Schemas.user_id_path_schema.load({"user_id": user_id})
@@ -67,6 +153,7 @@ def drop_person(user_id: int):
 
 
 @app.get("/category")
+@jwt_required()
 def read_kinds():
     uid = request.args.get("user_id", type=int)
     raw = {}
@@ -91,13 +178,14 @@ def read_kinds():
         {
             "id": c.id,
             "category_name": c.name,
-            "user_id": c.owner_id
+            "user_id": c.owner_id,
         }
         for c in cats
     ], 200
 
 
 @app.post("/category")
+@jwt_required()
 def create_kind():
     try:
         body = Schemas.category_create_schema.load(request.get_json() or {})
@@ -130,6 +218,7 @@ def create_kind():
 
 
 @app.delete("/category")
+@jwt_required()
 def drop_kind():
     try:
         body = Schemas.category_delete_schema.load(request.get_json() or {})
@@ -146,7 +235,9 @@ def drop_kind():
     db.session.commit()
     return {"result": f"id: {cid} successfully deleted", "category_name": name}, 200
 
+
 @app.get("/record/<int:record_id>")
+@jwt_required()
 def read_entry(record_id: int):
     try:
         Schemas.record_id_path_schema.load({"record_id": record_id})
@@ -165,7 +256,9 @@ def read_entry(record_id: int):
         "amount": str(rec.amount),
     }, 200
 
+
 @app.delete("/record/<int:record_id>")
+@jwt_required()
 def drop_entry(record_id: int):
     try:
         Schemas.record_id_path_schema.load({"record_id": record_id})
@@ -175,7 +268,6 @@ def drop_entry(record_id: int):
     rec = Record.query.get(record_id)
     if rec is None:
         return {"error": "record not found"}, 404
-
 
     deleted = {
         "id": rec.id,
@@ -192,6 +284,7 @@ def drop_entry(record_id: int):
 
 
 @app.post("/record")
+@jwt_required()
 def create_entry():
     try:
         body = Schemas.record_create_schema.load(request.get_json() or {})
@@ -230,7 +323,9 @@ def create_entry():
         "amount": str(rec.amount),
     }, 201
 
+
 @app.get("/record")
+@jwt_required()
 def query_entries():
     uid = request.args.get("user_id", type=int)
     cid = request.args.get("category_id", type=int)

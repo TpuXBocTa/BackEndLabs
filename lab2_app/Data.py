@@ -1,6 +1,7 @@
 from datetime import datetime
 from . import db
 from .Models import User, Category, Record
+from passlib.hash import pbkdf2_sha256
 
 def test_data(reset: bool = False):
     if reset:
@@ -19,7 +20,10 @@ def test_data(reset: bool = False):
         (6,6,"2025-10-27 18:20:00",9999.99),
     ]
 
-    db.session.add_all([User(name=n) for n in users])
+    db.session.add_all([
+        User(name=n, password=pbkdf2_sha256.hash("12345"))
+        for n in users
+    ])
     db.session.commit()
 
     db.session.add_all([Category(name=n) for n in cats])
